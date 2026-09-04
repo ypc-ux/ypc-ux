@@ -24,7 +24,7 @@
 > A SHORT PRINCIPLE YOU WORK BY.
 
 TWO OR THREE SENTENCES ON WHAT YOU'RE BUILDING RIGHT NOW AND WHAT YOU CARE<br>
-ABOUT. Link the current main project like [projectname](https://github.com/YOUR_USERNAME/projectname).
+ABOUT. Link the current main project like [projectname](https://github.com/ypx-ux/projectname).
 
 <img src="./hd-stack.svg" width="620" alt="stack"/>
 
@@ -32,13 +32,13 @@ ABOUT. Link the current main project like [projectname](https://github.com/YOUR_
 
 <img src="./hd-projects.svg" width="620" alt="projects"/>
 
-**[project-one](https://github.com/YOUR_USERNAME/project-one)** &nbsp;·&nbsp; <samp>lang, lib</samp><br>
+**[project-one](https://github.com/ypx-ux/project-one)** &nbsp;·&nbsp; <samp>lang, lib</samp><br>
 ONE OR TWO LINES ON WHAT IT DOES AND WHY IT'S INTERESTING.
 
-**[project-two](https://github.com/YOUR_USERNAME/project-two)** &nbsp;·&nbsp; <samp>lang</samp><br>
+**[project-two](https://github.com/ypx-ux/project-two)** &nbsp;·&nbsp; <samp>lang</samp><br>
 ONE OR TWO LINES.
 
-**[project-three](https://github.com/YOUR_USERNAME/project-three)** &nbsp;·&nbsp; <samp>lang</samp><br>
+**[project-three](https://github.com/ypx-ux/project-three)** &nbsp;·&nbsp; <samp>lang</samp><br>
 ONE OR TWO LINES.
 
 <img src="./hd-stats.svg" width="620" alt="stats"/>

@@ -2,40 +2,29 @@
 
 This is a GitHub **profile README** — a self-updating one. A scheduled Action
 redraws the stat SVGs daily from the GitHub GraphQL API; nothing loads from a
-third-party service.
+third-party service. It's wired for the `ypx-ux` account.
 
-## 1. Name the repo after your username
+## 1. Create the repo
 
-Create a GitHub repo named **exactly** your username (e.g. `jsmith/jsmith`).
-That is what makes it render on your profile page.
+A GitHub repo named **exactly** `ypx-ux` (i.e. `ypx-ux/ypx-ux`). That name is
+what makes it render on your profile page.
 
-## 2. Replace the placeholder
+## 2. Fill in README.md
 
-One string to swap everywhere — your GitHub login:
+Replace the ALL-CAPS placeholders: name, links, bio, stack, projects. The
+project links already point at `github.com/ypx-ux/...` — just rename the repos.
 
-```bash
-grep -rl YOUR_USERNAME . | xargs sed -i '' 's/YOUR_USERNAME/your-actual-login/g'
-```
-
-(The stats workflow itself reads `github.repository_owner`, so the SVGs will use
-the right account regardless — this only fixes the `scripts/generate_stats.py`
-local default and the README project links.)
-
-## 3. Fill in README.md
-
-Replace the ALL-CAPS placeholders: name, links, bio, stack, projects.
-
-## 4. Push
+## 3. Push
 
 ```bash
 git add -A
 git commit -m "profile readme"
 git branch -M main
-git remote add origin git@github.com:your-actual-login/your-actual-login.git
+git remote add origin git@github.com:ypx-ux/ypx-ux.git
 git push -u origin main
 ```
 
-## 5. Generate the stats now (don't wait for the 05:17 UTC cron)
+## 4. Generate the stats now (don't wait for the 05:17 UTC cron)
 
 GitHub → repo → **Actions** → "refresh stats" → **Run workflow**.
 It commits `stats.svg`, `streak.svg`, `langs.svg`, `year.svg` and the `hd-*.svg`
@@ -43,9 +32,9 @@ headings. Until it runs, those image links 404 (the `hd-*.svg` headings are
 already committed, so those work immediately).
 
 If the push didn't enable Actions, flip it on under Settings → Actions → General,
-and make sure "Workflow permissions" is set to **Read and write**.
+and set "Workflow permissions" to **Read and write**.
 
-## 6. (optional) ASCII portrait
+## 5. (optional) ASCII portrait
 
 ```bash
 pip install pillow numpy opencv-python-headless rembg onnxruntime
