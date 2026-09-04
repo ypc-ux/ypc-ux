@@ -3,43 +3,36 @@
 <!-- Portrait: skipped for now. To add one later:
      python3 scripts/make_portrait.py photo.png --crop L,T,R,B
      python3 scripts/embed_portrait_font.py
-     then: <img src="./ascii.svg" width="460" alt="YOUR NAME"/> -->
+     then: <img src="./ascii.svg" width="460" alt="Julius Young III"/> -->
 
-# YOUR NAME
+# Julius Young III
 
 <img src="./stats.svg" width="620" alt="Contributions in the last year"/>
 
 <!-- populates on the first run of the stats workflow -->
 
-[your-site.com](https://YOUR_SITE) &nbsp;·&nbsp;
-[instagram](https://instagram.com/YOUR_HANDLE) &nbsp;·&nbsp;
-[linkedin](https://www.linkedin.com/in/YOUR_HANDLE/) &nbsp;·&nbsp;
-[email](mailto:YOUR_EMAIL)
+[velocitydemos.com](https://velocitydemos.com) &nbsp;·&nbsp;
+[instagram](https://www.instagram.com/juliusxyoung/) &nbsp;·&nbsp;
+[linkedin](https://www.linkedin.com/in/juliusy3/) &nbsp;·&nbsp;
+[email](mailto:julius@velocitydemos.com)
 
 </div>
 
 <img src="./hd-about.svg" width="620" alt="about"/>
 
-> ONE-LINE WHO/WHERE YOU ARE.<br>
-> A SHORT PRINCIPLE YOU WORK BY.
+> Building a world of my own.
 
-TWO OR THREE SENTENCES ON WHAT YOU'RE BUILDING RIGHT NOW AND WHAT YOU CARE<br>
-ABOUT. Link the current main project like [projectname](https://github.com/ypx-ux/projectname).
+<!-- Add stack and projects sections when you're ready. Template:
 
 <img src="./hd-stack.svg" width="620" alt="stack"/>
 
-<samp>LANG &nbsp; LANG &nbsp; FRAMEWORK &nbsp; TOOL &nbsp; TOOL &nbsp; TOOL</samp>
+<samp>lang &nbsp; lang &nbsp; framework &nbsp; tool</samp>
 
 <img src="./hd-projects.svg" width="620" alt="projects"/>
 
-**[project-one](https://github.com/ypx-ux/project-one)** &nbsp;·&nbsp; <samp>lang, lib</samp><br>
-ONE OR TWO LINES ON WHAT IT DOES AND WHY IT'S INTERESTING.
-
-**[project-two](https://github.com/ypx-ux/project-two)** &nbsp;·&nbsp; <samp>lang</samp><br>
-ONE OR TWO LINES.
-
-**[project-three](https://github.com/ypx-ux/project-three)** &nbsp;·&nbsp; <samp>lang</samp><br>
-ONE OR TWO LINES.
+**[repo-name](https://github.com/ypx-ux/repo-name)** &nbsp;·&nbsp; <samp>lang</samp><br>
+One line on what it does.
+-->
 
 <img src="./hd-stats.svg" width="620" alt="stats"/>
 
