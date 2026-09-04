@@ -30,7 +30,7 @@
 
 <img src="./hd-projects.svg" width="620" alt="projects"/>
 
-**[repo-name](https://github.com/ypx-ux/repo-name)** &nbsp;·&nbsp; <samp>lang</samp><br>
+**[repo-name](https://github.com/ypc-ux/repo-name)** &nbsp;·&nbsp; <samp>lang</samp><br>
 One line on what it does.
 -->
 

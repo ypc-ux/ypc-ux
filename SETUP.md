@@ -2,17 +2,17 @@
 
 This is a GitHub **profile README** — a self-updating one. A scheduled Action
 redraws the stat SVGs daily from the GitHub GraphQL API; nothing loads from a
-third-party service. It's wired for the `ypx-ux` account.
+third-party service. It's wired for the `ypc-ux` account.
 
 ## 1. Create the repo
 
-A GitHub repo named **exactly** `ypx-ux` (i.e. `ypx-ux/ypx-ux`). That name is
+A GitHub repo named **exactly** `ypc-ux` (i.e. `ypc-ux/ypc-ux`). That name is
 what makes it render on your profile page.
 
 ## 2. Fill in README.md
 
 Replace the ALL-CAPS placeholders: name, links, bio, stack, projects. The
-project links already point at `github.com/ypx-ux/...` — just rename the repos.
+project links already point at `github.com/ypc-ux/...` — just rename the repos.
 
 ## 3. Push
 
@@ -20,7 +20,7 @@ project links already point at `github.com/ypx-ux/...` — just rename the repos
 git add -A
 git commit -m "profile readme"
 git branch -M main
-git remote add origin git@github.com:ypx-ux/ypx-ux.git
+git remote add origin git@github.com:ypc-ux/ypc-ux.git
 git push -u origin main
 ```
 
