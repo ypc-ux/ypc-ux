@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+
+# Pilot: real API keys, scraped lead lists, and call records stay local.
+.env
+*.db
+shops.csv
