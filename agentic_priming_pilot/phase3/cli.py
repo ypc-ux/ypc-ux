@@ -12,6 +12,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import case_study
 from . import report as report_mod
 from . import scorer, store
 
@@ -123,6 +124,15 @@ def cmd_report(conn, args):
         print(report_mod.render(rows))
 
 
+def cmd_case_study(conn, args):
+    doc = case_study.build(conn, Path(args.targets))
+    if args.out:
+        Path(args.out).write_text(doc)
+        print(f"Wrote case study to {args.out}")
+    else:
+        print(doc)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=str(store.DEFAULT_DB))
@@ -164,11 +174,23 @@ def main(argv=None):
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_report)
 
+    p = sub.add_parser(
+        "case-study", help="Generate the case study from logged data."
+    )
+    p.add_argument("--targets", default="shops.csv")
+    p.add_argument("--out", help="Write to file (default: stdout).")
+    p.set_defaults(func=cmd_case_study)
+
     args = parser.parse_args(argv)
     conn = store.connect(Path(args.db))
     try:
         args.func(conn, args)
-    except (scorer.ScorerUnavailable, LookupError, ValueError) as exc:
+    except (
+        scorer.ScorerUnavailable,
+        case_study.NotEnoughData,
+        LookupError,
+        ValueError,
+    ) as exc:
         sys.exit(f"error: {exc}")
     finally:
         conn.close()

@@ -12,7 +12,25 @@ from pathlib import Path
 DEFAULT_DB = Path("pilot.db")
 
 CONTEXTS = ("phone", "in_person")
-OUTCOMES = ("booked", "no_answer", "declined", "hung_up")
+
+# wrong_number and disconnected exist so Phase 2's verification can be scored
+# against reality: without them there is no way to tell a number that was
+# simply not picked up from one that was never the shop's line.
+OUTCOMES = (
+    "booked",
+    "no_answer",
+    "declined",
+    "hung_up",
+    "wrong_number",
+    "disconnected",
+)
+
+# Outcomes proving the number did reach the intended business.
+OUTCOMES_REACHED_BUSINESS = ("booked", "declined", "hung_up")
+
+# Outcomes proving the number was bad. no_answer is deliberately in neither
+# bucket — it is genuinely ambiguous evidence about the number itself.
+OUTCOMES_BAD_NUMBER = ("wrong_number", "disconnected")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS script_versions (
@@ -42,8 +60,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     business_name     TEXT NOT NULL,
     phone             TEXT,
     channel           TEXT NOT NULL CHECK (channel IN ('phone', 'walk_in')),
-    outcome           TEXT NOT NULL
-                      CHECK (outcome IN ('booked','no_answer','declined','hung_up')),
+    outcome           TEXT NOT NULL,
     contacted_at      TEXT NOT NULL,
     notes             TEXT
 );
@@ -58,7 +75,43 @@ def connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate_outcome_check(conn)
     return conn
+
+
+def _migrate_outcome_check(conn) -> None:
+    """Early versions pinned the outcome vocabulary in a CHECK constraint, so
+    a database created then rejects wrong_number/disconnected. Rebuild the
+    table without the constraint, preserving rows; validation now lives in
+    record_attempt() alone."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='attempts'"
+    ).fetchone()
+    if not row or "CHECK (outcome IN" not in (row["sql"] or ""):
+        return
+
+    conn.executescript(
+        """
+        PRAGMA foreign_keys=off;
+        BEGIN;
+        CREATE TABLE attempts_new (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            script_version_id INTEGER NOT NULL REFERENCES script_versions(id),
+            business_name     TEXT NOT NULL,
+            phone             TEXT,
+            channel           TEXT NOT NULL
+                              CHECK (channel IN ('phone', 'walk_in')),
+            outcome           TEXT NOT NULL,
+            contacted_at      TEXT NOT NULL,
+            notes             TEXT
+        );
+        INSERT INTO attempts_new SELECT * FROM attempts;
+        DROP TABLE attempts;
+        ALTER TABLE attempts_new RENAME TO attempts;
+        COMMIT;
+        PRAGMA foreign_keys=on;
+        """
+    )
 
 
 def add_script(conn, name: str, context: str, body: str) -> int:

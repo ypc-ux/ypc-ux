@@ -85,10 +85,29 @@ python -m phase3.cli log-outcome 1 --business "Ray's Body Shop" \
 
 # 4. compare once you have ~15-20 attempts
 python -m phase3.cli report
+
+# 5. generate the case study from the logged data
+python -m phase3.cli case-study --targets shops.csv --out case-study.md
 ```
 
-Outcomes are `booked | no_answer | declined | hung_up`. Passing `--targets`
-warns if the number you're logging wasn't a `verified` row from Phase 2.
+Outcomes are `booked | no_answer | declined | hung_up | wrong_number |
+disconnected`. Passing `--targets` warns if the number you're logging wasn't a
+`verified` row from Phase 2.
+
+`wrong_number` and `disconnected` are what make the verified-number accuracy
+rate measurable — without them there's no way to distinguish a number nobody
+picked up from a number that was never the shop's line. Log them accurately;
+that metric is only as honest as the outcomes you record. `no_answer` is
+excluded from the accuracy denominator on purpose, since it is ambiguous
+evidence about the number itself.
+
+### Case study
+
+`case-study` computes every figure from `pilot.db` and the Phase 2 CSV — it
+takes no hand-entered numbers, and it refuses to run on an empty database
+rather than emitting a template of placeholders that could later be mistaken
+for results. Below ~30 attempts it states plainly that the pilot demonstrates
+the method rather than proving the score predicts conversion.
 
 State lives in `pilot.db` (SQLite) — inspectable with `sqlite3 pilot.db`.
 
