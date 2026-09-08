@@ -3,20 +3,21 @@
 Agentic Priming local pilot — Phase 1 (find) + Phase 2 (triple-verify).
 
 Finds independent auto body / collision / tire shops within a radius of a
-zip code via Google Places, cross-checks phone numbers against the
-business's own website and (optionally) Yelp Fusion, normalizes everything
-to E.164, and scores a confidence tier per the spec:
+zip code via web scraping (Google Search + Google Maps), cross-checks phone
+numbers against the business's own website and (optionally) Yelp, normalizes
+everything to E.164, and scores a confidence tier per the spec:
 
     verified       -> number agrees identically across >=2 of 3 sources
     check_manually -> only 1 source, or sources disagree
     rejected       -> looks like a mobile number and isn't the GBP number
 
-Requires GOOGLE_PLACES_API_KEY. YELP_API_KEY and NUMVERIFY_API_KEY are
-optional — features they gate are skipped cleanly when absent.
+No API keys required. YELP_API_KEY and NUMVERIFY_API_KEY are optional —
+features they gate are skipped cleanly when absent.
 """
 import argparse
 import csv
 import difflib
+import json
 import logging
 import os
 import re
@@ -24,10 +25,13 @@ import sys
 import time
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import quote, urljoin
 
 import phonenumbers
 import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from playwright.sync_api import sync_playwright
 
 from franchises import is_franchise
 
@@ -35,7 +39,6 @@ load_dotenv()
 
 log = logging.getLogger("pilot")
 
-GOOGLE_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 YELP_KEY = os.environ.get("YELP_API_KEY", "")
 NUMVERIFY_KEY = os.environ.get("NUMVERIFY_API_KEY", "")
 
@@ -46,7 +49,11 @@ SEARCH_QUERIES = [
 ]
 
 SESSION = requests.Session()
-SESSION.headers.update({"User-Agent": "agentic-priming-pilot/1.0"})
+SESSION.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+
+PHONE_PATTERN = re.compile(
+    r"(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}"
+)
 
 
 @dataclass
@@ -85,66 +92,164 @@ def normalize_phone(raw: Optional[str]) -> str:
 
 
 def geocode_zip(zip_code: str) -> tuple:
+    """Geocode zip code to lat/lng using Nominatim (OpenStreetMap)."""
     resp = SESSION.get(
-        "https://maps.googleapis.com/maps/api/geocode/json",
-        params={"address": zip_code, "key": GOOGLE_KEY},
+        "https://nominatim.openstreetmap.org/search",
+        params={"q": zip_code, "format": "json", "limit": 1},
         timeout=15,
     )
     resp.raise_for_status()
     data = resp.json()
-    if not data.get("results"):
-        raise RuntimeError(f"Could not geocode zip {zip_code}: {data.get('status')}")
-    loc = data["results"][0]["geometry"]["location"]
-    return loc["lat"], loc["lng"]
+    if not data:
+        raise RuntimeError(f"Could not geocode zip {zip_code}")
+    return float(data[0]["lat"]), float(data[0]["lon"])
 
 
-def places_text_search(query: str, lat: float, lng: float, radius_m: int) -> list:
+def scrape_google_search(query: str, limit: int = 20) -> list:
+    """Scrape Google Search for Business Profile results. Returns list of dicts
+    with 'name', 'address', and 'maps_url' keys."""
     results = []
-    params = {
-        "query": query,
-        "location": f"{lat},{lng}",
-        "radius": radius_m,
-        "key": GOOGLE_KEY,
-    }
-    while True:
-        resp = SESSION.get(
-            "https://maps.googleapis.com/maps/api/place/textsearch/json",
-            params=params,
-            timeout=15,
-        )
+    search_query = f'"{query}" near 30035'
+    url = f"https://www.google.com/search?q={quote(search_query)}"
+
+    try:
+        resp = SESSION.get(url, timeout=15)
         resp.raise_for_status()
-        data = resp.json()
-        if data.get("status") not in ("OK", "ZERO_RESULTS"):
-            log.warning("Places text search error: %s", data.get("status"))
-            break
-        results.extend(data.get("results", []))
-        next_token = data.get("next_page_token")
-        if not next_token:
-            break
-        # Google requires a short delay before the token becomes valid.
-        time.sleep(2)
-        params = {"pagetoken": next_token, "key": GOOGLE_KEY}
+    except requests.RequestException as exc:
+        log.warning("Google Search scrape failed: %s", exc)
+        return results
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Extract Business Profile cards from search results
+    for card in soup.find_all("div", attrs={"data-lpage": True})[:limit]:
+        try:
+            name_elem = card.find("h3")
+            if not name_elem:
+                continue
+            name = name_elem.get_text(strip=True)
+
+            # Find Maps link
+            maps_link = None
+            for link in card.find_all("a"):
+                href = link.get("href", "")
+                if "maps.google.com" in href or "google.com/maps" in href:
+                    maps_link = href
+                    break
+
+            if maps_link and name:
+                results.append({"name": name, "maps_url": maps_link})
+        except Exception as e:
+            log.debug("Error parsing card: %s", e)
+            continue
+
     return results
 
 
-def place_details(place_id: str) -> dict:
-    resp = SESSION.get(
-        "https://maps.googleapis.com/maps/api/place/details/json",
-        params={
-            "place_id": place_id,
-            "fields": "name,formatted_address,formatted_phone_number,"
-            "international_phone_number,website,business_status,"
-            "rating,user_ratings_total,url,address_component",
-            "key": GOOGLE_KEY,
-        },
-        timeout=15,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("status") != "OK":
-        log.warning("Place details error for %s: %s", place_id, data.get("status"))
-        return {}
-    return data.get("result", {})
+def scrape_google_maps(query: str, lat: float, lng: float, limit: int = 20) -> list:
+    """Scrape Google Maps for businesses. Returns list of dicts with
+    'name', 'address', and 'maps_url' keys."""
+    results = []
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+
+            # Navigate to Maps with search
+            search_url = f"https://www.google.com/maps/search/{quote(query)}"
+            page.goto(search_url, wait_until="networkidle")
+
+            # Wait for results to load
+            time.sleep(2)
+
+            # Extract business cards from sidebar
+            html = page.content()
+            soup = BeautifulSoup(html, "html.parser")
+
+            for result_elem in soup.find_all("div", attrs={"role": "button"})[:limit]:
+                try:
+                    name = result_elem.get_text(strip=True)
+                    if not name or len(name) < 2:
+                        continue
+
+                    # Try to get Maps link
+                    link_elem = result_elem.find("a")
+                    maps_url = link_elem.get("href", "") if link_elem else ""
+
+                    if name and (maps_url or not results):
+                        results.append({"name": name, "maps_url": maps_url})
+                except Exception as e:
+                    log.debug("Error parsing Maps result: %s", e)
+                    continue
+
+            browser.close()
+    except Exception as e:
+        log.warning("Google Maps scrape failed: %s", e)
+
+    return results
+
+
+def gbp_scrape_details(maps_url: str) -> dict:
+    """Scrape Google Business Profile page for details. Returns dict with
+    'name', 'address', 'phone_gbp', 'rating', 'review_count', 'website', 'maps_url'."""
+    details = {"name": "", "address": "", "phone_gbp": "", "rating": "",
+               "review_count": "", "website": "", "maps_url": maps_url}
+
+    if not maps_url:
+        return details
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(maps_url, wait_until="networkidle", timeout=30000)
+            time.sleep(1)
+
+            html = page.content()
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Try to extract JSON-LD structured data
+            for script in soup.find_all("script", {"type": "application/ld+json"}):
+                try:
+                    data = json.loads(script.string)
+                    if data.get("@type") == "LocalBusiness" or data.get("@type") == "Organization":
+                        details["name"] = data.get("name", details["name"])
+                        details["address"] = data.get("address", {}).get("streetAddress", "") if isinstance(data.get("address"), dict) else ""
+                        details["phone_gbp"] = data.get("telephone", details["phone_gbp"])
+                        details["rating"] = str(data.get("aggregateRating", {}).get("ratingValue", "")) if data.get("aggregateRating") else ""
+                        details["review_count"] = str(data.get("aggregateRating", {}).get("reviewCount", "")) if data.get("aggregateRating") else ""
+                        details["website"] = data.get("url", details["website"])
+                        break
+                except json.JSONDecodeError:
+                    continue
+
+            # Fallback: extract from page text if JSON-LD didn't work
+            if not details["name"]:
+                h1 = soup.find("h1")
+                if h1:
+                    details["name"] = h1.get_text(strip=True)
+
+            # Extract phone number from page text
+            if not details["phone_gbp"]:
+                text = soup.get_text()
+                match = PHONE_PATTERN.search(text)
+                if match:
+                    details["phone_gbp"] = match.group(0)
+
+            # Extract website link
+            if not details["website"]:
+                for link in soup.find_all("a"):
+                    href = link.get("href", "")
+                    if "http" in href and "google" not in href and "maps" not in href:
+                        details["website"] = href
+                        break
+
+            browser.close()
+    except Exception as e:
+        log.debug("GBP scrape failed for %s: %s", maps_url, e)
+
+    return details
 
 
 def extract_zip(address_components: list) -> str:
@@ -152,11 +257,6 @@ def extract_zip(address_components: list) -> str:
         if "postal_code" in comp.get("types", []):
             return comp.get("long_name", "")
     return ""
-
-
-PHONE_PATTERN = re.compile(
-    r"(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}"
-)
 
 
 def scrape_website_phone(url: str) -> str:
@@ -311,69 +411,81 @@ def score_confidence(shop: Shop) -> None:
 
 
 def run(zip_code: str, radius_miles: float, limit: Optional[int], out_path: str) -> None:
-    if not GOOGLE_KEY:
-        sys.exit("GOOGLE_PLACES_API_KEY is not set. Copy .env.example to .env and fill it in.")
-
-    radius_m = int(radius_miles * 1609.34)
     log.info("Geocoding %s ...", zip_code)
-    lat, lng = geocode_zip(zip_code)
+    try:
+        lat, lng = geocode_zip(zip_code)
+    except Exception as e:
+        sys.exit(f"Failed to geocode {zip_code}: {e}")
 
-    raw_results = {}
+    all_candidates = []
+
+    # Step 1: Scrape Google Search results
     for query, category in SEARCH_QUERIES:
-        log.info("Searching Places for %r ...", query)
-        for result in places_text_search(query, lat, lng, radius_m):
-            place_id = result.get("place_id")
-            if not place_id:
-                continue
-            existing = raw_results.get(place_id)
-            if existing:
-                # Same place found by multiple queries -> mark "both" if it
-                # was tire+body.
-                if existing[1] != category:
-                    raw_results[place_id] = (result, "both")
-            else:
-                raw_results[place_id] = (result, category)
+        log.info("Scraping Google Search for %r ...", query)
+        search_results = scrape_google_search(query, limit=20)
+        for result in search_results:
+            result["category"] = category
+            all_candidates.append(result)
 
-    log.info("Found %d unique Places candidates before filtering.", len(raw_results))
+    log.info("Got %d candidates from Google Search", len(all_candidates))
+
+    # Step 2: Fallback to Google Maps scraping if needed
+    if len(all_candidates) < 5:
+        for query, category in SEARCH_QUERIES:
+            log.info("Fallback: Scraping Google Maps for %r ...", query)
+            maps_results = scrape_google_maps(query, lat, lng, limit=10)
+            for result in maps_results:
+                # Dedupe against existing
+                is_dup = any(
+                    difflib.SequenceMatcher(
+                        None,
+                        result.get("name", "").lower(),
+                        c.get("name", "").lower()
+                    ).ratio() > 0.8
+                    for c in all_candidates
+                )
+                if not is_dup:
+                    result["category"] = category
+                    all_candidates.append(result)
+
+    log.info("Found %d total candidates", len(all_candidates))
 
     shops = []
-    place_ids = list(raw_results.keys())
-    if limit:
-        place_ids = place_ids[:limit]
+    to_process = all_candidates[:limit] if limit else all_candidates
 
-    for place_id in place_ids:
-        _, category = raw_results[place_id]
-        details = place_details(place_id)
-        if not details:
+    for candidate in to_process:
+        maps_url = candidate.get("maps_url", "")
+        if not maps_url:
+            log.debug("Skipping candidate with no maps_url: %s", candidate.get("name"))
             continue
+
+        log.info("Scraping details for %s ...", candidate.get("name"))
+        details = gbp_scrape_details(maps_url)
+        if not details.get("name"):
+            log.debug("Failed to extract details from %s", maps_url)
+            continue
+
         name = details.get("name", "")
         if is_franchise(name):
             log.info("Excluding franchise: %s", name)
             continue
-        if details.get("business_status") not in (None, "OPERATIONAL"):
-            log.info("Skipping non-operational business: %s", name)
-            continue
 
         shop = Shop(
             business_name=name,
-            category=category,
-            address=details.get("formatted_address", ""),
-            zip=extract_zip(details.get("address_component", [])),
-            place_id=place_id,
-            phone_gbp=normalize_phone(
-                details.get("international_phone_number")
-                or details.get("formatted_phone_number")
-            ),
+            category=candidate.get("category", ""),
+            address=details.get("address", ""),
+            zip="",
+            phone_gbp=normalize_phone(details.get("phone_gbp", "")),
             website_url=details.get("website", ""),
-            google_rating=str(details.get("rating", "")),
-            review_count=str(details.get("user_ratings_total", "")),
-            maps_url=details.get("url", ""),
+            google_rating=details.get("rating", ""),
+            review_count=details.get("review_count", ""),
+            maps_url=maps_url,
         )
 
         log.info("Checking website for %s ...", shop.business_name)
         shop.phone_website = scrape_website_phone(shop.website_url)
 
-        log.info("Cross-checking third source for %s ...", shop.business_name)
+        log.info("Cross-checking Yelp for %s ...", shop.business_name)
         shop.phone_third_source = yelp_lookup(
             shop.business_name, shop.address, shop.zip
         )
@@ -385,6 +497,9 @@ def run(zip_code: str, radius_miles: float, limit: Optional[int], out_path: str)
 
         score_confidence(shop)
         shops.append(shop)
+
+        # Rate limiting
+        time.sleep(1)
 
     shops = dedupe(shops)
     log.info("Writing %d rows to %s", len(shops), out_path)
