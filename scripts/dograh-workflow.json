@@ -1,0 +1,140 @@
+{
+  "name": "Appointment Booking Agent",
+  "description": "Multi-client voice agent for booking appointments via Twilio handoff",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "label": "Incoming Call",
+      "config": {}
+    },
+    {
+      "id": "agent",
+      "type": "agent",
+      "label": "Booking Assistant",
+      "config": {
+        "prompt": "You are a professional booking assistant for {{client_name}} in {{client_timezone}}.\n\nBusiness Info:\n{{business_hours}}\n\nServices Offered:\n{{services_json}}\n\nFAQs:\n{{faqs_json}}\n\n{{agent_instructions}}\n\nYour job:\n1. Greet the caller warmly\n2. Ask what service they need\n3. Use the 'check_availability' tool to find available times\n4. Once they choose a time, use 'book_appointment' to confirm\n5. Collect their name and phone if not already provided\n6. Confirm the booking details\n\nIf they can't find a suitable time or want to speak to someone, escalate gracefully.",
+        "model": "gpt-4o-mini",
+        "temperature": 0.7,
+        "voice": {
+          "provider": "openai",
+          "voiceId": "echo"
+        }
+      }
+    },
+    {
+      "id": "check_availability_tool",
+      "type": "http_tool",
+      "label": "Check Availability",
+      "config": {
+        "name": "check_availability",
+        "description": "Check available appointment times for a service",
+        "url": "{{PUBLIC_BASE_URL}}/api/dograh/tools/check-availability",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "payload_template": {
+          "client_id": "{{initial_context.client_id}}",
+          "service_name": "{{extracted_service_name}}",
+          "preferred_date": "{{extracted_preferred_date}}"
+        }
+      }
+    },
+    {
+      "id": "book_appointment_tool",
+      "type": "http_tool",
+      "label": "Book Appointment",
+      "config": {
+        "name": "book_appointment",
+        "description": "Book an appointment for the caller",
+        "url": "{{PUBLIC_BASE_URL}}/api/dograh/tools/book-appointment",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "payload_template": {
+          "client_id": "{{initial_context.client_id}}",
+          "service_name": "{{extracted_service_name}}",
+          "start_time": "{{extracted_start_time}}",
+          "contact_name": "{{extracted_contact_name}}",
+          "contact_phone": "{{extracted_contact_phone}}",
+          "notes": "{{extracted_notes}}",
+          "requested_window": "{{extracted_requested_window}}"
+        }
+      }
+    },
+    {
+      "id": "webhook_end",
+      "type": "webhook",
+      "label": "Send Confirmation",
+      "config": {
+        "url": "{{PUBLIC_BASE_URL}}/api/dograh/webhook",
+        "method": "POST",
+        "payload_template": {
+          "workflow_run_id": "{{workflow_run_id}}",
+          "initial_context": "{{initial_context}}",
+          "gathered_context": {
+            "booking_made": "{{booking_made}}",
+            "appointment": {
+              "service": "{{extracted_service_name}}",
+              "start_time": "{{extracted_start_time}}",
+              "contact_name": "{{extracted_contact_name}}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "label": "End Call",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "agent"
+    },
+    {
+      "from": "agent",
+      "to": "check_availability_tool"
+    },
+    {
+      "from": "check_availability_tool",
+      "to": "agent"
+    },
+    {
+      "from": "agent",
+      "to": "book_appointment_tool"
+    },
+    {
+      "from": "book_appointment_tool",
+      "to": "agent"
+    },
+    {
+      "from": "agent",
+      "to": "webhook_end"
+    },
+    {
+      "from": "webhook_end",
+      "to": "end"
+    }
+  ],
+  "inbound_config": {
+    "note": "Configure in Dograh UI: Create a phone number config pointing to this workflow",
+    "incoming_context_required": {
+      "client_id": "string (UUID)",
+      "caller_number": "string (E.164 format)",
+      "client_name": "string",
+      "client_timezone": "string",
+      "business_hours": "string (formatted hours)",
+      "services_json": "string (JSON array of services)",
+      "faqs_json": "string (JSON array of FAQs)",
+      "agent_instructions": "string (custom instructions for agent)"
+    }
+  },
+  "notes": "This workflow is designed to be flexible:\n- Each call receives initial_context with client info and business knowledge\n- The same workflow handles all clients by parameterizing via context\n- HTTP tools extract parameters from LLM reasoning (not strict schema)\n- Webhook fires at end with booking status in gathered_context\n- Reuses switchboard's availability/booking/textback logic"
+}
