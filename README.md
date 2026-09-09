@@ -34,6 +34,37 @@
 One line on what it does.
 -->
 
+<img src="./hd-projects.svg" width="620" alt="projects"/>
+
+## 🎙️ Sports Media Automation System
+
+**A complete, turnkey platform for automating podcast growth campaigns.**
+
+This is a comprehensive system that automates 4 parallel outreach campaigns (sponsorships, guests, audience growth, local partnerships) using AI-powered discovery, verification, and adaptive scripting. It's worth **$4,000–8,000** in market value and is being offered completely free.
+
+📖 **Start here:**
+- **[PRODUCT_OVERVIEW.md](./PRODUCT_OVERVIEW.md)** — Full feature breakdown, how it works, the roadmap
+- **[VALUE_BREAKDOWN.md](./VALUE_BREAKDOWN.md)** — What this is worth financially ($4K–8K in Year 1)
+- **[PRODUCT_PACKAGE.md](./PRODUCT_PACKAGE.md)** — Quick start guide and complete package summary
+- **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** — Technical architecture and 4-week roadmap
+
+**What you get:**
+- ✅ Automated discovery of 100+ relevant prospects/week (4 campaigns)
+- ✅ Phone/email verification at scale
+- ✅ AI-generated scripts (brand-aware, adapts from outcomes)
+- ✅ Deerflow orchestration (fully hands-off execution)
+- ✅ Real-time dashboard + weekly digests
+- ✅ GitHub-based approval workflows for integrations
+- ✅ Slack, Discord, Google Sheets, GitHub Issues integrations
+- ✅ 4 weeks of implementation support
+
+**Expected results (Month 1):**
+- 85 prospects discovered, 67 verified, 24 contacted, 6 conversions
+- Real conversion metrics (see what scripts work)
+- Weekly insights (objections, timing patterns, geographic performance)
+
+---
+
 <img src="./hd-stats.svg" width="620" alt="stats"/>
 
 <div align="center">
