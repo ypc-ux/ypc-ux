@@ -2,6 +2,7 @@ import { TwiMLResponse } from "twilio/lib/twiml/TwiMLResponse";
 import { db } from "@/lib/supabase";
 import { loadKnowledge } from "@/lib/knowledge";
 import { sendTextback } from "@/lib/textback";
+import { shouldRouteToDograh } from "@/lib/feature-flags";
 
 export const dynamic = "force-dynamic";
 
@@ -69,9 +70,27 @@ export async function POST(req: Request) {
       .update({ dial_status: dialStatus })
       .eq("twilio_call_sid", callSid);
 
-    // Decision: voice_agent_enabled?
+    // Decision logic:
+    // 1. Client must have voice_agent_enabled
+    // 2. Call must pass canary rollout check (feature flag)
     if (!client.voice_agent_enabled) {
       console.info("status: voice agent disabled, sending text-back", { clientId, dialStatus });
+      await sendTextback({
+        client,
+        toNumber: caller,
+        callId: callSid,
+      });
+
+      return textOnlyResponse("text-back queued");
+    }
+
+    const routeToDograh = await shouldRouteToDograh(caller);
+    if (!routeToDograh) {
+      console.info("status: call not in dograh canary, sending text-back", {
+        clientId,
+        caller,
+        dialStatus,
+      });
       await sendTextback({
         client,
         toNumber: caller,
