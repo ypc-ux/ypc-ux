@@ -1,0 +1,276 @@
+name: "Agentic Priming Automated Loop"
+description: |
+  Fully automated workflow for Agentic Priming Phase 3:
+  Generate → Score → Call → Log → Analyze → Regenerate
+
+  Runs independently after Phase 1/2 produce shops.csv with verified numbers.
+  Uses Ollama for local script generation; Deerflow for orchestration.
+
+version: "1.0"
+
+triggers:
+  - type: "schedule"
+    name: "weekday_morning"
+    description: "Run Monday-Friday at 9 AM"
+    cron: "0 9 * * 1-5"
+    enabled: false  # User enables after setup
+
+  - type: "manual"
+    name: "run_now"
+    description: "User can trigger manually from Deerflow UI"
+
+environment:
+  OLLAMA_BASE_URL: "http://localhost:11434"
+  OLLAMA_MODEL: "mistral"
+  SHOPS_CSV: "shops.csv"
+  DB_PATH: "pilot.db"
+  SCRIPT_CONTEXT: "phone"
+
+steps:
+  load_shops:
+    description: "Load verified shops from Phase 2 output"
+    type: "call_python"
+    module: "phase3.ollama_integration"
+    function: "load_shops_csv"
+    args:
+      csv_path: "${SHOPS_CSV}"
+    output_var: "shops"
+    on_error: "exit"
+
+  check_iteration:
+    description: "Decide if we should generate new scripts"
+    type: "call_python"
+    module: "phase3.ollama_integration"
+    function: "suggest_next_step"
+    args:
+      state: "{{ state }}"
+    output_var: "next_action"
+
+  generate_scripts:
+    description: "Generate N script variants with Ollama"
+    type: "conditional"
+    condition: "{{ next_action == 'generate_variants' }}"
+    then:
+      - type: "call_python"
+        module: "phase3.ollama_integration"
+        function: "generate_and_register_scripts"
+        args:
+          conn: "{{ db_conn }}"
+          context: "auto body and tire shop owner in Decatur, GA area"
+          num_variants: 2
+          script_context: "{{ SCRIPT_CONTEXT }}"
+          feedback: "{{ recent_feedback }}"
+          ollama_model: "{{ OLLAMA_MODEL }}"
+        output_var: "new_scripts"
+        on_error: "continue"  # Continue if Ollama unavailable
+      - type: "log"
+        message: "Generated {{ new_scripts | length }} script variants"
+    else:
+      - type: "log"
+        message: "Skipping script generation; using existing scripts"
+
+  score_variants:
+    description: "Score all unscored scripts"
+    type: "conditional"
+    condition: "{{ next_action == 'score_variants' }}"
+    then:
+      - type: "call_python"
+        module: "phase3.ollama_integration"
+        function: "score_all_variants"
+        args:
+          conn: "{{ db_conn }}"
+          backend: "manual"
+        output_var: "scoring_status"
+      - type: "log"
+        message: |
+          Scoring status: {{ scoring_status.scored_count }} scored,
+          {{ scoring_status.needs_manual_count }} need manual review
+      - type: "conditional"
+        condition: "{{ scoring_status.needs_manual_count > 0 }}"
+        then:
+          - type: "pause"
+            message: |
+              MANUAL ACTION NEEDED:
+              Run these commands to score scripts:
+              python -m phase3.cli score <id> --backend manual --total <score> --humanity pass
+              Then resume workflow.
+            require_user_input: true
+
+  batch_call_shops:
+    description: "Make calls to next batch of shops"
+    type: "conditional"
+    condition: "{{ next_action == 'call_shops' }}"
+    then:
+      - type: "call_python"
+        module: "phase3.call_executor"
+        function: "batch_call_shops"
+        args:
+          shops: "{{ shops }}"
+          script_id: 1  # Use first generated script for MVP
+          script_body: "{{ script_body }}"
+          batch_size: 10
+          channel: "{{ SCRIPT_CONTEXT }}"
+        output_var: "call_results"
+        on_error: "continue"
+
+      - type: "log"
+        message: "Completed batch: {{ call_results | length }} calls"
+
+  log_outcomes:
+    description: "Record call outcomes in database"
+    type: "conditional"
+    condition: "{{ call_results is defined and call_results | length > 0 }}"
+    then:
+      - type: "call_python"
+        module: "phase3.ollama_integration"
+        function: "log_outcomes_bulk"
+        args:
+          conn: "{{ db_conn }}"
+          outcomes: "{{ call_results }}"
+        output_var: "log_status"
+
+      - type: "log"
+        message: "Logged {{ log_status.recorded_count }} outcomes"
+
+  analyze_feedback:
+    description: "Analyze patterns from recent attempts"
+    type: "conditional"
+    condition: "{{ next_action == 'analyze_feedback' }}"
+    then:
+      - type: "call_python"
+        module: "phase3.ollama_integration"
+        function: "analyze_recent_attempts"
+        args:
+          conn: "{{ db_conn }}"
+          limit: 20
+        output_var: "feedback"
+
+      - type: "log"
+        message: |
+          Feedback analysis:
+          - Booked: {{ feedback.booked_count }}
+          - Declined: {{ feedback.declined_count }}
+          - Suggested angle: {{ feedback.suggested_angle }}
+
+  check_regenerate:
+    description: "Decide if we should regenerate scripts based on feedback"
+    type: "conditional"
+    condition: "{{ feedback is defined }}"
+    then:
+      - type: "call_python"
+        module: "phase3.ollama_integration"
+        function: "should_regenerate"
+        args:
+          feedback: "{{ feedback }}"
+          min_attempts: 10
+          min_booking_rate: 0.30
+        output_var: "should_regenerate"
+
+      - type: "conditional"
+        condition: "{{ should_regenerate == true }}"
+        then:
+          - type: "log"
+            message: "Booking rate below target; regenerating scripts next iteration"
+          - type: "set_variable"
+            name: "next_action"
+            value: "generate_variants"
+          - type: "set_variable"
+            name: "recent_feedback"
+            value: "{{ feedback }}"
+        else:
+          - type: "log"
+            message: "Performance acceptable; continue with current scripts"
+
+  update_state:
+    description: "Update iteration state for next cycle"
+    type: "call_python"
+    module: "phase3.ollama_integration"
+    function: "attempt_iteration_summary"
+    args:
+      conn: "{{ db_conn }}"
+    output_var: "state"
+
+  check_completion:
+    description: "Check if we've reached stopping condition"
+    type: "conditional"
+    condition: "{{ state.total_attempts >= 50 }}"
+    then:
+      - type: "log"
+        message: "Reached 50 attempts; moving to case study"
+      - type: "set_variable"
+        name: "next_action"
+        value: "stop"
+    else:
+      - type: "log"
+        message: "{{ state.total_attempts }}/50 attempts; continuing iteration"
+
+  generate_case_study:
+    description: "Generate final case study report"
+    type: "conditional"
+    condition: "{{ state.total_attempts >= 30 }}"
+    then:
+      - type: "call_python"
+        module: "phase3.cli"
+        function: "cmd_case_study"  # or direct call to case_study.generate()
+        args:
+          conn: "{{ db_conn }}"
+          shops_csv: "{{ SHOPS_CSV }}"
+          output_path: "case-study.md"
+        output_var: "case_study_result"
+
+      - type: "log"
+        message: "Case study generated: case-study.md"
+
+      - type: "artifact"
+        path: "case-study.md"
+        description: "Final case study with Wilson 95% confidence intervals"
+
+  notify_completion:
+    description: "Send completion notification"
+    type: "send_email"
+    to: "{{ user_email }}"
+    subject: "Agentic Priming Workflow Complete"
+    body: |
+      Workflow iteration complete!
+
+      Summary:
+      - Total attempts: {{ state.total_attempts }}
+      - Booking rate: {{ (state.avg_booking_rate * 100) | round(1) }}%
+      - Scripts tested: {{ state.scripts_count }}
+
+      Results: case-study.md
+      Database: pilot.db (inspect with sqlite3 pilot.db)
+
+      Next steps:
+      - Review case study for insights
+      - Adjust scripts based on feedback
+      - Run workflow again for more data
+
+  loop_or_stop:
+    description: "Decide whether to loop back or stop"
+    type: "conditional"
+    condition: "{{ next_action != 'stop' and state.total_attempts < 50 }}"
+    then:
+      - type: "jump"
+        target: "check_iteration"
+        description: "Loop back to iteration start"
+    else:
+      - type: "log"
+        message: "Workflow complete or stopped"
+
+# Failure handling
+on_error:
+  log_level: "error"
+  retry_policy: "exponential_backoff"
+  max_retries: 3
+  notification: "email"  # Notify user on error
+
+# Monitoring & visibility
+monitoring:
+  log_level: "info"
+  log_output: "deerflow.log"
+  metrics:
+    - "calls_executed"
+    - "booking_rate"
+    - "iteration_count"
+    - "scripts_generated"

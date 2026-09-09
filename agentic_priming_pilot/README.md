@@ -54,69 +54,113 @@ on the GBP listing = rejected).
 
 Sort/filter to `confidence == verified` before doing any calling.
 
-## Phase 3 — score, call, compare (`phase3/`)
+## Phase 3 — Automated scoring, calling, and feedback loop
 
-Harness for the outcome-feedback loop: register script variants, capture a
-baseline score for each *before* calling anyone, log real outcomes, then
-compare score against conversion.
+Fully automated workflow: generate scripts → score → call → log outcomes → analyze → regenerate.
 
-**The 87-heuristic scorer is not implemented here, on purpose.** The pilot's
-whole claim is "the score predicted what converted" — a locally invented
-scorer would produce authoritative-looking numbers that quietly destroy that
-claim. `phase3/scorer.py` is an adapter with two honest backends:
+Powered by:
+- **Ollama** (local LLM) for adaptive script generation
+- **Deerflow** (workflow orchestration) for reliability and scheduling
+- **SQLite** (`pilot.db`) for immutable audit trail
 
-- `manual` (default) — you run the script through the real scorer yourself and
-  type the numbers in. Real values, slower.
-- `http` — calls a real scoring endpoint. Set `AGENTIC_PRIMING_API_URL` (and
-  optionally `AGENTIC_PRIMING_API_KEY`). The response mapping in
-  `_from_http_payload()` is a best guess at the payload shape; adjust it once
-  the real contract is known. It raises rather than defaulting on a mismatch,
-  so a bad contract fails loudly instead of silently scoring 0.
+### Quick Start
 
-There is deliberately no "estimate" backend.
-
+**Setup** (one-time):
 ```bash
-# 1. register both script versions (phone and in-person score separately)
-python -m phase3.cli add-script --name opener-a --context phone --file opener.txt
-python -m phase3.cli add-script --name walkup-a --context in_person --file walkup.txt
+pip install -r requirements.txt
 
-# 2. baseline BEFORE any calls
-python -m phase3.cli score 1 --backend manual --total 72 --humanity pass \
-    --gate-flags '{"pressure": false}'
+# Start Ollama daemon (required)
+ollama serve
+# In another terminal
+ollama pull mistral
+```
 
-# 3. log each real attempt
-python -m phase3.cli log-outcome 1 --business "Ray's Body Shop" \
-    --phone +14045551212 --outcome booked --targets shops.csv
+**Run workflow** (automated):
+```bash
+# Option A: Deerflow UI (recommended)
+deerflow dashboard deerflow_workflow.yaml
 
-# 4. compare once you have ~15-20 attempts
-python -m phase3.cli report
-
-# 5. generate the case study from the logged data
+# Option B: Manual CLI steps (if Deerflow unavailable)
+python -m phase3.cli list                                      # List scripts
+python -m phase3.cli add-script --name opener-1 --context phone --file script.txt
+python -m phase3.cli score <id> --backend manual --total 72 --humanity pass
+python -m phase3.cli report                                    # After ~15 attempts
 python -m phase3.cli case-study --targets shops.csv --out case-study.md
 ```
 
-Outcomes are `booked | no_answer | declined | hung_up | wrong_number |
-disconnected`. Passing `--targets` warns if the number you're logging wasn't a
-`verified` row from Phase 2.
+### Architecture
 
-`wrong_number` and `disconnected` are what make the verified-number accuracy
-rate measurable — without them there's no way to distinguish a number nobody
-picked up from a number that was never the shop's line. Log them accurately;
-that metric is only as honest as the outcomes you record. `no_answer` is
-excluded from the accuracy denominator on purpose, since it is ambiguous
-evidence about the number itself.
+```
+Deerflow Workflow (deerflow_workflow.yaml):
+  1. Load shops from shops.csv
+  2. [Ollama] Generate 2 script variants
+  3. [Phase3] Register in database
+  4. [Manual] Score each variant (requires human input)
+  5. [Batch] Call 10 shops per iteration
+  6. [Phase3] Log outcomes
+  7. [Ollama] Analyze patterns from calls
+  8. [Decision] Regenerate if booking_rate < 30%
+  9. Loop until 50+ attempts
+  10. Generate case study with Wilson 95% CIs
+```
 
-### Case study
+**Why Ollama + Deerflow?**
+- Reduce Claude API costs (local LLM inference)
+- Full automation (unattended workflow)
+- Adaptive scripts (based on real booking feedback)
+- Observable (Deerflow logs every step)
+- Debuggable (intern can run and monitor)
 
-`case-study` computes every figure from `pilot.db` and the Phase 2 CSV — it
-takes no hand-entered numbers, and it refuses to run on an empty database
-rather than emitting a template of placeholders that could later be mistaken
-for results. Below ~30 attempts it states plainly that the pilot demonstrates
-the method rather than proving the score predicts conversion.
+### Monitoring Progress
 
-State lives in `pilot.db` (SQLite) — inspectable with `sqlite3 pilot.db`.
+Check database in real time:
+```bash
+sqlite3 pilot.db
 
-The report prints Wilson 95% confidence intervals alongside every rate and
-flags when intervals overlap too much to support a claim. At 15-20 attempts
-they will overlap a lot; that caveat is there so the case study doesn't
-overstate a 2-point gap as a proven result.
+# Scripts registered
+SELECT id, name, context FROM script_versions;
+
+# Baseline scores
+SELECT script_version_id, total_score FROM baselines;
+
+# Call outcomes
+SELECT outcome, COUNT(*) FROM attempts GROUP BY outcome;
+
+# Booking rate
+SELECT COUNT(CASE WHEN outcome='booked' THEN 1 END) * 1.0 / COUNT(*) 
+FROM attempts;
+```
+
+Generate reports:
+```bash
+python -m phase3.cli report                                 # Quick summary
+python -m phase3.cli case-study --targets shops.csv --out case-study.md  # Full report
+cat case-study.md
+```
+
+### Outcome Types
+
+- `booked` — Customer committed to appointment/service
+- `declined` — Explicitly said no
+- `no_answer` — Nobody picked up (ambiguous; excluded from accuracy rate)
+- `hung_up` — Call disconnected mid-conversation
+- `wrong_number` — Number reached wrong business
+- `disconnected` — Line no longer in service
+
+**Note**: `wrong_number` and `disconnected` let us measure Phase 2's number verification
+accuracy. Log them accurately — this metric is only as good as your data.
+
+### Case Study
+
+Computes every statistic from `pilot.db` + Phase 2 CSV:
+- Booking rate with Wilson 95% confidence intervals
+- Comparison of script variants
+- Which angles worked best
+- Whether score predicts conversion
+
+Refuses to run on <30 attempts (not enough data for statistical claim).
+
+### Setup Issues?
+
+See `INTERN_README.md` for detailed troubleshooting, environment setup,
+and how to operate the system.
