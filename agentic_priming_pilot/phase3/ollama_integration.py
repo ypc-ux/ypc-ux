@@ -5,11 +5,16 @@ generate scripts → score baselines → batch call → log outcomes → analyze
 """
 import csv
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
 
 from . import store
-from .. import ollama_script_gen
+
+try:
+    from .. import ollama_script_gen
+except ImportError:
+    import ollama_script_gen
 
 logger = logging.getLogger(__name__)
 
