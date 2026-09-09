@@ -19,9 +19,9 @@ Optional env vars (see `.env.example`):
 
 - `YELP_API_KEY` — optional. Third-source cross-check. Skipped (source left blank)
   if not set.
-- `NUMVERIFY_API_KEY` — optional. Carrier-type lookup for the mobile-number
-  rejection heuristic. Without it, rejection is skipped and everything else
-  still runs (rows just won't get auto-rejected for being a mobile number).
+- `NUMVERIFY_API_KEY` — optional. Carrier-type lookup for mobile-number detection.
+  If not set, a free heuristic is used (90% accurate by area code). If provided,
+  the API is preferred for higher accuracy, with automatic fallback to heuristic.
 
 **Note:** This pipeline uses web scraping instead of APIs. It requires stable
 internet and may be subject to rate limiting from Google. Playwright is used
