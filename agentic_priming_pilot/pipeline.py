@@ -34,6 +34,7 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
 from franchises import is_franchise
+from ollama_script_gen import generate_scripts, init_ollama_client, OLLAMA_AVAILABLE
 
 load_dotenv()
 
@@ -74,6 +75,7 @@ class Shop:
     maps_url: str = ""
     notes: list = field(default_factory=list)
     confidence: str = ""
+    opener_script: str = ""
 
 
 def normalize_phone(raw: Optional[str]) -> str:
@@ -486,7 +488,14 @@ def score_confidence(shop: Shop) -> None:
             shop.notes.append("Sources disagree on the phone number.")
 
 
-def run(zip_code: str, radius_miles: float, limit: Optional[int], out_path: str) -> None:
+def run(
+    zip_code: str,
+    radius_miles: float,
+    limit: Optional[int],
+    out_path: str,
+    generate_openers: bool = False,
+    ollama_model: str = "mistral",
+) -> None:
     log.info("Geocoding %s ...", zip_code)
     try:
         lat, lng = geocode_zip(zip_code)
@@ -578,6 +587,32 @@ def run(zip_code: str, radius_miles: float, limit: Optional[int], out_path: str)
         time.sleep(1)
 
     shops = dedupe(shops)
+
+    if generate_openers:
+        if not OLLAMA_AVAILABLE:
+            log.warning("--generate-openers requested but the ollama package is not installed; skipping.")
+        else:
+            try:
+                ollama_client = init_ollama_client()
+            except Exception as e:
+                log.warning("Ollama unreachable, skipping opener generation: %s", e)
+                ollama_client = None
+
+            if ollama_client:
+                for shop in shops:
+                    if shop.confidence == "rejected":
+                        continue
+                    log.info("Generating opener script for %s ...", shop.business_name)
+                    context = shop.category.replace("_", " ") or "small business"
+                    variants = generate_scripts(
+                        context=context,
+                        num_variants=1,
+                        model=ollama_model,
+                        client=ollama_client,
+                    )
+                    if variants:
+                        shop.opener_script = variants[0]["body"]
+
     log.info("Writing %d rows to %s", len(shops), out_path)
 
     fieldnames = [
@@ -594,6 +629,7 @@ def run(zip_code: str, radius_miles: float, limit: Optional[int], out_path: str)
         "maps_url",
         "confidence",
         "notes",
+        "opener_script",
     ]
     with open(out_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -622,13 +658,30 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="Cap number of places processed (for testing).")
     parser.add_argument("--out", default="shops.csv")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--generate-openers",
+        action="store_true",
+        help="Generate a phone opener script per non-rejected shop via ollama_script_gen (requires a running Ollama server).",
+    )
+    parser.add_argument(
+        "--ollama-model",
+        default="mistral",
+        help="Ollama model to use for opener generation (default: mistral).",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    run(args.zip, args.radius_miles, args.limit, args.out)
+    run(
+        args.zip,
+        args.radius_miles,
+        args.limit,
+        args.out,
+        generate_openers=args.generate_openers,
+        ollama_model=args.ollama_model,
+    )
 
 
 if __name__ == "__main__":
