@@ -76,6 +76,7 @@ class Shop:
     notes: list = field(default_factory=list)
     confidence: str = ""
     opener_script: str = ""
+    opener_script_source: str = ""
 
 
 def normalize_phone(raw: Optional[str]) -> str:
@@ -612,6 +613,7 @@ def run(
                     )
                     if variants:
                         shop.opener_script = variants[0]["body"]
+                        shop.opener_script_source = variants[0].get("source", "")
 
     log.info("Writing %d rows to %s", len(shops), out_path)
 
@@ -630,6 +632,7 @@ def run(
         "confidence",
         "notes",
         "opener_script",
+        "opener_script_source",
     ]
     with open(out_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

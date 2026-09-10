@@ -16,6 +16,7 @@ except ImportError:
     OLLAMA_AVAILABLE = False
 
 from system_prompts import get_persona, ANALYSIS_SYSTEM_PROMPT, REGENERATION_SYSTEM_PROMPT
+from quality_gate import apply_quality_gate, gate_configured
 
 
 def init_ollama_client(base_url: str = "http://localhost:11434"):
@@ -117,15 +118,22 @@ Script:
                 logger.warning(f"Ollama generated empty/short script for variant {i+1}")
                 body = _fallback_script(context, angle)
 
+            gated = _run_quality_gate(body, context, angle, feedback_summary)
+
             variants.append({
                 "id": i + 1,
                 "variant_num": i + 1,
-                "body": body,
+                "body": gated["body"],
                 "prompt_seed": angle,
                 "model": model,
                 "temperature": temperature,
+                "source": gated["source"],
+                "quality_score": gated["score"],
             })
-            logger.info(f"Generated script variant {i+1} ({angle})")
+            logger.info(
+                f"Generated script variant {i+1} ({angle}), source={gated['source']}"
+                + (f", score={gated['score']}" if gated["score"] is not None else "")
+            )
         except Exception as e:
             logger.error(f"Error generating variant {i+1}: {e}")
             variants.append({
@@ -135,6 +143,8 @@ Script:
                 "prompt_seed": angle,
                 "model": model,
                 "temperature": temperature,
+                "source": "fallback_template",
+                "quality_score": None,
             })
 
     return variants
@@ -289,6 +299,23 @@ Improved script:
     except Exception as e:
         logger.error(f"Regeneration failed: {e}")
         return old_script
+
+
+def _run_quality_gate(body: str, context: str, angle: str, feedback_summary: str) -> dict:
+    """Run the independent Claude quality gate on an Ollama draft, if configured.
+
+    Returns {"body", "source", "score"}. If the gate isn't configured
+    (no ANTHROPIC_API_KEY), the draft passes through unscored.
+    """
+    if not gate_configured():
+        return {"body": body, "source": "ollama_unscored", "score": None}
+
+    try:
+        gated = apply_quality_gate(body, context, angle, feedback_summary)
+        return {"body": gated["body"], "source": gated["source"], "score": gated["score"]}
+    except Exception as e:
+        logger.warning(f"Quality gate errored, using Ollama draft as-is: {e}")
+        return {"body": body, "source": "ollama_gate_error", "score": None}
 
 
 def _pick_angle(variant_num: int, booked_count: int = 0) -> str:

@@ -62,3 +62,20 @@ You are revising an existing script using feedback from real calls. Preserve wha
 def get_persona(angle: str) -> str:
     """Return the system prompt for a given sales angle, defaulting to value_prop."""
     return PERSONAS.get(angle, PERSONAS["value_prop"])
+
+
+QUALITY_GATE_SYSTEM_PROMPT = """You are an independent copywriting quality reviewer for sales scripts.
+You did not write the script you are reviewing — score it cold, the way a skeptical outside editor would.
+
+Score the script 0-100 on:
+- Persuasiveness: would this actually change a listener's mind, or is it generic filler?
+- Naturalness: does it sound like a real person talking, not an ad or a template?
+- Honesty: does it avoid fabricated stats, fake urgency, or unearned claims?
+- Structure: hook, clear angle, one ask — not rambling or unfocused.
+
+A score below 70 means the script is generic, robotic, or reads like a first-draft template
+rather than something worth putting in front of a real prospect.
+
+Respond with JSON only, no prose, no markdown fences:
+{"score": <0-100 integer>, "reasoning": "<one sentence, specific to this script>"}
+"""
