@@ -12,7 +12,9 @@ import json
 import sys
 from pathlib import Path
 
+from . import call_executor
 from . import case_study
+from . import ollama_integration
 from . import report as report_mod
 from . import scorer, store
 
@@ -133,6 +135,33 @@ def cmd_case_study(conn, args):
         print(doc)
 
 
+def cmd_batch_call(conn, args):
+    """Load shops from CSV, run batch calls via call_executor, log outcomes."""
+    shops = ollama_integration.load_shops_csv(args.csv)
+    if not shops:
+        sys.exit(f"No verified shops found in {args.csv}")
+
+    script = store.get_script(conn, args.script_id)
+    limit = args.limit or len(shops)
+
+    print(f"Calling {min(limit, len(shops))} shops with script {script['id']} ({script['name']})...")
+
+    outcomes = call_executor.batch_call_shops(
+        shops=shops,
+        script_id=script["id"],
+        script_body=script["body"],
+        batch_size=limit,
+        channel=args.channel,
+    )
+
+    result = ollama_integration.log_outcomes_bulk(conn, outcomes)
+    print(f"Done: {result['recorded_count']} recorded, {result['failed_count']} failed")
+
+    for o in outcomes:
+        status = "✓" if o["outcome"] == "booked" else "✗"
+        print(f"  {status} {o['business_name']}: {o['outcome']}")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=str(store.DEFAULT_DB))
@@ -180,6 +209,13 @@ def main(argv=None):
     p.add_argument("--targets", default="shops.csv")
     p.add_argument("--out", help="Write to file (default: stdout).")
     p.set_defaults(func=cmd_case_study)
+
+    p = sub.add_parser("batch-call", help="Run batch calls and log outcomes.")
+    p.add_argument("script_id", type=int)
+    p.add_argument("--csv", default="shops.csv", help="Shops CSV (Phase 2 output).")
+    p.add_argument("--limit", type=int, help="Max shops to call (default: all).")
+    p.add_argument("--channel", choices=("phone", "walk_in"), default="phone")
+    p.set_defaults(func=cmd_batch_call)
 
     args = parser.parse_args(argv)
     conn = store.connect(Path(args.db))
