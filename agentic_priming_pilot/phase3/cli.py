@@ -15,6 +15,7 @@ from pathlib import Path
 from . import case_study
 from . import report as report_mod
 from . import scorer, store
+from .ops_publish import LocalSignal, publish_signals
 
 
 def _load_verified_phones(csv_path: Path) -> dict:
@@ -131,6 +132,18 @@ def cmd_case_study(conn, args):
         print(f"Wrote case study to {args.out}")
     else:
         print(doc)
+
+    publish_signals(
+        "agentic-priming-pilot",
+        [
+            LocalSignal(
+                project="agentic-priming-pilot",
+                kind="did",
+                title="case study generated",
+                detail=f"written to {args.out}" if args.out else "printed to stdout",
+            )
+        ],
+    )
 
 
 def main(argv=None):
