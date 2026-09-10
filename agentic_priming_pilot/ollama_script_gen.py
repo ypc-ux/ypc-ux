@@ -15,6 +15,8 @@ try:
 except ImportError:
     OLLAMA_AVAILABLE = False
 
+from system_prompts import get_persona, ANALYSIS_SYSTEM_PROMPT, REGENERATION_SYSTEM_PROMPT
+
 
 def init_ollama_client(base_url: str = "http://localhost:11434"):
     """Create and test Ollama client connection.
@@ -90,7 +92,7 @@ def generate_scripts(
 
 {feedback_summary}
 
-This is variant {i + 1}. Focus on: {angle}
+This is variant {i + 1}.
 
 Guidelines:
 - Start with a hook (2-3 sentences max)
@@ -105,6 +107,7 @@ Script:
             response = client.generate(
                 model=model,
                 prompt=prompt,
+                system=get_persona(angle),
                 stream=False,
                 options={"temperature": temperature, "num_predict": 500},
             )
@@ -192,6 +195,7 @@ Response must be valid JSON only, no other text."""
             response = client.generate(
                 model="mistral",
                 prompt=prompt,
+                system=ANALYSIS_SYSTEM_PROMPT,
                 stream=False,
                 options={"temperature": 0.3},
             )
@@ -270,6 +274,7 @@ Improved script:
         response = client.generate(
             model=model,
             prompt=prompt,
+            system=REGENERATION_SYSTEM_PROMPT,
             stream=False,
             options={"temperature": 0.5, "num_predict": 500},
         )
