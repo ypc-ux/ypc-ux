@@ -4,16 +4,24 @@ description: |
   Generate → Score → Call → Log → Analyze → Regenerate
 
   Runs independently after Phase 1/2 produce shops.csv with verified numbers.
-  Uses Ollama for local script generation; Deerflow for orchestration.
+  Uses Ollama for local script generation.
+
+  NOTE: This file describes the intended workflow shape but is NOT executable
+  as-is. It targets "Deerflow" for orchestration and scheduling, but Deerflow
+  is not installed anywhere in this portfolio (absent from requirements.txt,
+  no executor/config exists) and none of the steps below actually run on
+  their own. In particular `notify_completion` (send_email) and the schedule
+  trigger have never fired. Until a real orchestrator is wired up, run the
+  steps manually via `phase3/cli.py`.
 
 version: "1.0"
 
 triggers:
   - type: "schedule"
     name: "weekday_morning"
-    description: "Run Monday-Friday at 9 AM"
+    description: "Run Monday-Friday at 9 AM (NOT ACTUALLY SCHEDULED — no orchestrator runs this file)"
     cron: "0 9 * * 1-5"
-    enabled: true
+    enabled: false
 
   - type: "manual"
     name: "run_now"
@@ -226,7 +234,7 @@ steps:
         description: "Final case study with Wilson 95% confidence intervals"
 
   notify_completion:
-    description: "Send completion notification"
+    description: "Send completion notification (NOT WIRED UP — see note above; no executor sends this)"
     type: "send_email"
     to: "{{ user_email }}"
     subject: "Agentic Priming Workflow Complete"
