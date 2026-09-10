@@ -13,7 +13,7 @@ triggers:
     name: "weekday_morning"
     description: "Run Monday-Friday at 9 AM"
     cron: "0 9 * * 1-5"
-    enabled: false  # User enables after setup
+    enabled: true
 
   - type: "manual"
     name: "run_now"
